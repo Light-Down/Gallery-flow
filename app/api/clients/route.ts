@@ -9,38 +9,53 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import bcrypt from "bcryptjs";
+import { getSession } from "@/lib/auth";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const clients = await prisma.client.findMany({
-    where: { photographerId: session.user.userId },
-    select: { id: true, name: true, email: true },
-    orderBy: { name: "asc" },
-  });
+  const snapshot = await adminDb
+    .collection("clients")
+    .where("photographerId", "==", session.uid)
+    .orderBy("name", "asc")
+    .get();
+
+  const clients = snapshot.docs.map((doc) => ({
+    id: doc.id,
+    name: doc.data().name,
+    email: doc.data().email,
+  }));
 
   return NextResponse.json(clients);
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { name, email, password } = await req.json();
-  const hashed = await bcrypt.hash(password, 12);
 
-  const client = await prisma.client.create({
-    data: { name, email, password: hashed, photographerId: session.user.userId },
+  // Create Firebase Auth account for the client
+  const userRecord = await adminAuth.createUser({ email, password, displayName: name });
+  await adminAuth.setCustomUserClaims(userRecord.uid, {
+    userType: "client",
+    photographerId: session.uid,
   });
 
-  return NextResponse.json({ id: client.id, name: client.name, email: client.email }, { status: 201 });
+  const now = new Date();
+  await adminDb.collection("clients").doc(userRecord.uid).set({
+    name,
+    email,
+    photographerId: session.uid,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return NextResponse.json({ id: userRecord.uid, name, email }, { status: 201 });
 }

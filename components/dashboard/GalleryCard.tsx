@@ -10,7 +10,8 @@
 
 import Link from "next/link";
 import { Images, ExternalLink } from "lucide-react";
-import type { GalleryStatus } from "@prisma/client";
+
+type GalleryStatus = "DRAFT" | "SNEAK_PEAK" | "PUBLISHED" | "EXPIRED";
 
 const statusLabels: Record<GalleryStatus, { label: string; className: string }> = {
   DRAFT: { label: "Entwurf", className: "bg-gray-100 text-gray-600" },

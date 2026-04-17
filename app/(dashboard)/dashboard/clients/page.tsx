@@ -8,26 +8,39 @@
  * (at your option) any later version.
  */
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { ClientCard } from "@/components/dashboard/ClientCard";
 
 export default async function ClientsPage() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") redirect("/login");
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") redirect("/login");
 
-  const clients = await prisma.client.findMany({
-    where: { photographerId: session.user.userId },
-    include: {
-      galleries: { select: { id: true, title: true, status: true } },
-      _count: { select: { favorites: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const snapshot = await adminDb
+    .collection("clients")
+    .where("photographerId", "==", session.uid)
+    .orderBy("createdAt", "desc")
+    .get();
+
+  const clients = await Promise.all(
+    snapshot.docs.map(async (doc) => {
+      const [galleriesSnap, favSnap] = await Promise.all([
+        adminDb.collection("galleries").where("clientId", "==", doc.id).select("title", "status").get(),
+        adminDb.collection("favorites").where("clientId", "==", doc.id).count().get(),
+      ]);
+      const d = doc.data();
+      return {
+        id: doc.id,
+        name: d.name as string,
+        email: d.email as string,
+        galleries: galleriesSnap.docs.map((g) => ({ id: g.id, title: g.data().title as string, status: g.data().status as string })),
+        _count: { favorites: favSnap.data().count },
+      };
+    })
+  );
 
   return (
     <div>

@@ -8,38 +8,42 @@
  * (at your option) any later version.
  */
 
-import { withAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export default withAuth(
-  function middleware(req) {
-    const token = req.nextauth.token;
-    const pathname = req.nextUrl.pathname;
+const SESSION_COOKIE = "__session";
 
-    if (pathname.startsWith("/dashboard")) {
-      if (token?.userType !== "photographer") {
-        return NextResponse.redirect(new URL("/login", req.url));
-      }
-    }
+export async function middleware(req: NextRequest) {
+  const sessionCookie = req.cookies.get(SESSION_COOKIE)?.value;
+  const pathname = req.nextUrl.pathname;
 
-    if (pathname.startsWith("/gallery")) {
-      if (token?.userType !== "client") {
-        return NextResponse.redirect(new URL("/login", req.url));
-      }
-    }
-
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token, req }) => {
-        const pathname = req.nextUrl.pathname;
-        if (pathname === "/login" || pathname === "/") return true;
-        return !!token;
-      },
-    },
+  if (!sessionCookie) {
+    return NextResponse.redirect(new URL("/login", req.url));
   }
-);
+
+  // Verify via internal API to use Firebase Admin (Edge Runtime can't use Node.js SDK directly)
+  const verifyUrl = new URL("/api/auth/verify", req.url);
+  const verifyRes = await fetch(verifyUrl, {
+    headers: { Cookie: `${SESSION_COOKIE}=${sessionCookie}` },
+  });
+
+  if (!verifyRes.ok) {
+    const response = NextResponse.redirect(new URL("/login", req.url));
+    response.cookies.delete(SESSION_COOKIE);
+    return response;
+  }
+
+  const { userType } = await verifyRes.json();
+
+  if (pathname.startsWith("/dashboard") && userType !== "photographer") {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  if (pathname.startsWith("/gallery") && userType !== "client") {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: ["/dashboard/:path*", "/gallery/:path*"],

@@ -8,9 +8,8 @@
  * (at your option) any later version.
  */
 
-import type { GalleryDesign, GalleryStatus } from "@prisma/client";
-
-export type { GalleryDesign, GalleryStatus };
+export type GalleryDesign = "MASONRY" | "GRID" | "HORIZONTAL" | "SLIDESHOW" | "MAGAZINE" | "POLAROID";
+export type GalleryStatus = "DRAFT" | "SNEAK_PEAK" | "PUBLISHED" | "EXPIRED";
 
 export interface PhotographerBranding {
   logoUrl: string | null;
@@ -57,30 +56,3 @@ export interface UploadProgress {
   error?: string;
 }
 
-declare module "next-auth" {
-  interface User {
-    userType?: string;
-    photographerId?: string;
-    gallerySlug?: string;
-  }
-  interface Session {
-    user: {
-      name?: string | null;
-      email?: string | null;
-      image?: string | null;
-      userType: string;
-      userId: string;
-      photographerId?: string;
-      gallerySlug?: string;
-    };
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    userType?: string;
-    userId?: string;
-    photographerId?: string;
-    gallerySlug?: string;
-  }
-}

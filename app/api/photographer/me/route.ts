@@ -9,58 +9,54 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const photographer = await prisma.photographer.findUnique({
-    where: { id: session.user.userId },
-    select: {
-      id: true, name: true, email: true,
-      logoUrl: true, accentColor: true, footerText: true,
-      googleReviewUrl: true, secondReviewUrl: true, secondReviewLabel: true,
-    },
-  });
+  const doc = await adminDb.collection("photographers").doc(session.uid).get();
+  if (!doc.exists) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!photographer) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const data = doc.data()!;
   return NextResponse.json({
-    ...photographer,
-    logoUrl: photographer.logoUrl ?? "",
-    footerText: photographer.footerText ?? "",
-    googleReviewUrl: photographer.googleReviewUrl ?? "",
-    secondReviewUrl: photographer.secondReviewUrl ?? "",
-    secondReviewLabel: photographer.secondReviewLabel ?? "",
+    id: doc.id,
+    name: data.name ?? "",
+    email: data.email ?? "",
+    logoUrl: data.logoUrl ?? "",
+    accentColor: data.accentColor ?? "#1a1a1a",
+    footerText: data.footerText ?? "",
+    googleReviewUrl: data.googleReviewUrl ?? "",
+    secondReviewUrl: data.secondReviewUrl ?? "",
+    secondReviewLabel: data.secondReviewLabel ?? "",
   });
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json();
-  const { name, email, logoUrl, accentColor, footerText, googleReviewUrl, secondReviewUrl, secondReviewLabel } = body;
+  const { name, email, logoUrl, accentColor, footerText, googleReviewUrl, secondReviewUrl, secondReviewLabel } =
+    await req.json();
 
-  await prisma.photographer.update({
-    where: { id: session.user.userId },
-    data: {
-      name,
-      email,
-      logoUrl: logoUrl || null,
-      accentColor,
-      footerText: footerText || null,
-      googleReviewUrl: googleReviewUrl || null,
-      secondReviewUrl: secondReviewUrl || null,
-      secondReviewLabel: secondReviewLabel || null,
-    },
+  await adminDb.collection("photographers").doc(session.uid).update({
+    name,
+    email,
+    logoUrl: logoUrl || null,
+    accentColor,
+    footerText: footerText || null,
+    googleReviewUrl: googleReviewUrl || null,
+    secondReviewUrl: secondReviewUrl || null,
+    secondReviewLabel: secondReviewLabel || null,
+    updatedAt: new Date(),
   });
+
+  if (email) await adminAuth.updateUser(session.uid, { email, displayName: name });
 
   return NextResponse.json({ ok: true });
 }

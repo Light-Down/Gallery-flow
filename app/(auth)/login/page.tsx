@@ -11,7 +11,8 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
@@ -31,28 +32,34 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn(
-      mode === "photographer" ? "photographer-login" : "client-login",
-      {
-        email,
-        password,
-        ...(mode === "client" && { photographerId }),
-        redirect: false,
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await credential.user.getIdToken();
+
+      const res = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      });
+
+      if (!res.ok) {
+        setError("Ungültige Anmeldedaten. Bitte überprüfe deine Eingaben.");
+        setLoading(false);
+        return;
       }
-    );
 
-    setLoading(false);
+      // Determine where to redirect based on custom claims
+      const { userType } = await res.json().catch(() => ({ userType: null }));
 
-    if (result?.error) {
+      if (userType === "photographer" || mode === "photographer") {
+        router.push("/dashboard");
+      } else {
+        const slug = searchParams.get("gallery");
+        router.push(slug ? `/gallery/${slug}` : "/login");
+      }
+    } catch {
       setError("Ungültige Anmeldedaten. Bitte überprüfe deine Eingaben.");
-      return;
-    }
-
-    if (mode === "photographer") {
-      router.push("/dashboard");
-    } else {
-      const slug = searchParams.get("gallery");
-      router.push(slug ? `/gallery/${slug}` : "/gallery");
+      setLoading(false);
     }
   }
 

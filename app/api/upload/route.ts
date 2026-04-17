@@ -9,15 +9,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 import { compressImage } from "@/lib/sharp";
 import { saveFile } from "@/lib/storage";
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -29,10 +28,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing file or galleryId" }, { status: 400 });
   }
 
-  const gallery = await prisma.gallery.findFirst({
-    where: { id: galleryId, photographerId: session.user.userId },
-  });
-  if (!gallery) return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
+  const galleryDoc = await adminDb.collection("galleries").doc(galleryId).get();
+  if (!galleryDoc.exists || galleryDoc.data()?.photographerId !== session.uid) {
+    return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
+  }
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const compressed = await compressImage(buffer);
@@ -40,22 +39,28 @@ export async function POST(req: NextRequest) {
   const filename = `${Date.now()}-${file.name.replace(/\.[^.]+$/, "")}.webp`;
   const previewUrl = await saveFile(compressed.buffer, galleryId, filename);
 
-  const lastPhoto = await prisma.photo.findFirst({
-    where: { galleryId },
-    orderBy: { sortOrder: "desc" },
+  const lastPhotoSnap = await adminDb
+    .collection("photos")
+    .where("galleryId", "==", galleryId)
+    .orderBy("sortOrder", "desc")
+    .limit(1)
+    .get();
+
+  const lastSortOrder = lastPhotoSnap.empty ? -1 : (lastPhotoSnap.docs[0].data().sortOrder ?? -1);
+
+  const now = new Date();
+  const photoRef = await adminDb.collection("photos").add({
+    galleryId,
+    filename: file.name,
+    previewUrl,
+    driveLink: null,
+    isSneakPeak: false,
+    width: compressed.width,
+    height: compressed.height,
+    sizeBytes: compressed.sizeBytes,
+    sortOrder: lastSortOrder + 1,
+    createdAt: now,
   });
 
-  const photo = await prisma.photo.create({
-    data: {
-      galleryId,
-      filename: file.name,
-      previewUrl,
-      width: compressed.width,
-      height: compressed.height,
-      sizeBytes: compressed.sizeBytes,
-      sortOrder: (lastPhoto?.sortOrder ?? -1) + 1,
-    },
-  });
-
-  return NextResponse.json(photo);
+  return NextResponse.json({ id: photoRef.id, galleryId, previewUrl });
 }

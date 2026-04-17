@@ -8,26 +8,43 @@
  * (at your option) any later version.
  */
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
+import type { GalleryStatus } from "@/types";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { GalleryCard } from "@/components/dashboard/GalleryCard";
 
 export default async function GalleriesPage() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") redirect("/login");
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") redirect("/login");
 
-  const galleries = await prisma.gallery.findMany({
-    where: { photographerId: session.user.userId },
-    include: {
-      client: { select: { name: true } },
-      _count: { select: { photos: true } },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+  const snapshot = await adminDb
+    .collection("galleries")
+    .where("photographerId", "==", session.uid)
+    .orderBy("updatedAt", "desc")
+    .get();
+
+  const galleries = await Promise.all(
+    snapshot.docs.map(async (doc) => {
+      const data = doc.data();
+      const [clientDoc, photosSnap] = await Promise.all([
+        data.clientId ? adminDb.collection("clients").doc(data.clientId).get() : Promise.resolve(null),
+        adminDb.collection("photos").where("galleryId", "==", doc.id).count().get(),
+      ]);
+      return {
+        id: doc.id,
+        title: data.title as string,
+        slug: data.slug as string,
+        status: data.status as GalleryStatus,
+        design: data.design as string,
+        updatedAt: data.updatedAt?.toDate?.() as Date | undefined,
+        client: clientDoc?.exists ? { name: (clientDoc.data()?.name ?? "") as string } : { name: "" },
+        _count: { photos: photosSnap.data().count },
+      };
+    })
+  );
 
   return (
     <div>

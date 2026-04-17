@@ -1,100 +1,44 @@
 /**
- * Gallery Flow
- * Copyright (C) 2025 Gallery Flow Contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Gallery Flow – Firebase session cookie helpers (server-side)
  */
 
-import { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
+import { adminAuth } from "@/lib/firebase-admin";
 
-export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
-  providers: [
-    CredentialsProvider({
-      id: "photographer-login",
-      name: "Photographer",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+const SESSION_COOKIE = "__session";
+const SESSION_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
-        const photographer = await prisma.photographer.findUnique({
-          where: { email: credentials.email },
-        });
-        if (!photographer) return null;
-
-        const valid = await bcrypt.compare(credentials.password, photographer.password);
-        if (!valid) return null;
-
-        return {
-          id: photographer.id,
-          email: photographer.email,
-          name: photographer.name,
-          userType: "photographer",
-        };
-      },
-    }),
-    CredentialsProvider({
-      id: "client-login",
-      name: "Client",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-        photographerId: { label: "Photographer ID", type: "text" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password || !credentials?.photographerId) return null;
-
-        const client = await prisma.client.findUnique({
-          where: {
-            email_photographerId: {
-              email: credentials.email,
-              photographerId: credentials.photographerId,
-            },
-          },
-          include: { galleries: { select: { slug: true }, take: 1 } },
-        });
-        if (!client) return null;
-
-        const valid = await bcrypt.compare(credentials.password, client.password);
-        if (!valid) return null;
-
-        return {
-          id: client.id,
-          email: client.email,
-          name: client.name,
-          userType: "client",
-          photographerId: client.photographerId,
-          gallerySlug: client.galleries[0]?.slug ?? null,
-        };
-      },
-    }),
-  ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.userType = (user as { userType: string }).userType;
-        token.userId = user.id;
-        token.photographerId = (user as { photographerId?: string }).photographerId;
-        token.gallerySlug = (user as { gallerySlug?: string }).gallerySlug;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      session.user.userType = token.userType as string;
-      session.user.userId = token.userId as string;
-      session.user.photographerId = token.photographerId as string | undefined;
-      session.user.gallerySlug = token.gallerySlug as string | undefined;
-      return session;
-    },
-  },
+export type SessionUser = {
+  uid: string;
+  email: string;
+  name: string;
+  userType: "photographer" | "client";
+  photographerId?: string;
+  gallerySlug?: string;
 };
+
+export async function createSessionCookie(idToken: string): Promise<string> {
+  return adminAuth.createSessionCookie(idToken, { expiresIn: SESSION_EXPIRY_MS });
+}
+
+export async function getSession(): Promise<SessionUser | null> {
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!sessionCookie) return null;
+
+  try {
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    return {
+      uid: decoded.uid,
+      email: decoded.email ?? "",
+      name: (decoded.name as string) ?? "",
+      userType: decoded.userType as "photographer" | "client",
+      photographerId: decoded.photographerId as string | undefined,
+      gallerySlug: decoded.gallerySlug as string | undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export { SESSION_COOKIE, SESSION_EXPIRY_MS };

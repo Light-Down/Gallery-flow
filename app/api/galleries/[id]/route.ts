@@ -9,64 +9,81 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
-  const gallery = await prisma.gallery.findFirst({
-    where: { id, photographerId: session.user.userId },
-    include: { photos: { orderBy: { sortOrder: "asc" } } },
-  });
+  const doc = await adminDb.collection("galleries").doc(id).get();
+  if (!doc.exists || doc.data()?.photographerId !== session.uid) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  if (!gallery) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(gallery);
+  const photosSnap = await adminDb
+    .collection("photos")
+    .where("galleryId", "==", id)
+    .orderBy("sortOrder", "asc")
+    .get();
+
+  return NextResponse.json({
+    id: doc.id,
+    ...doc.data(),
+    photos: photosSnap.docs.map((p) => ({ id: p.id, ...p.data() })),
+  });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
-  const body = await req.json();
-  const { title, slug, description, design, status, greetingText, clientId, expiresAt } = body;
+  const doc = await adminDb.collection("galleries").doc(id).get();
+  if (!doc.exists || doc.data()?.photographerId !== session.uid) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  const gallery = await prisma.gallery.updateMany({
-    where: { id, photographerId: session.user.userId },
-    data: {
-      title,
-      slug,
-      description,
-      design,
-      status,
-      greetingText,
-      clientId,
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
-    },
+  const { title, slug, description, design, status, greetingText, clientId, expiresAt } =
+    await req.json();
+
+  await adminDb.collection("galleries").doc(id).update({
+    title,
+    slug,
+    description: description ?? null,
+    design,
+    status,
+    greetingText: greetingText ?? null,
+    clientId: clientId ?? null,
+    expiresAt: expiresAt ? new Date(expiresAt) : null,
+    updatedAt: new Date(),
   });
 
-  if (gallery.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
-  await prisma.gallery.deleteMany({
-    where: { id, photographerId: session.user.userId },
-  });
+  const doc = await adminDb.collection("galleries").doc(id).get();
+  if (!doc.exists || doc.data()?.photographerId !== session.uid) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const photosSnap = await adminDb.collection("photos").where("galleryId", "==", id).get();
+  const batch = adminDb.batch();
+  photosSnap.docs.forEach((p) => batch.delete(p.ref));
+  batch.delete(adminDb.collection("galleries").doc(id));
+  await batch.commit();
 
   return NextResponse.json({ ok: true });
 }

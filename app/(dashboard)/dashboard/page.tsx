@@ -8,34 +8,38 @@
  * (at your option) any later version.
  */
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Users, Images, Eye } from "lucide-react";
 
 export default async function DashboardPage() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") redirect("/login");
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") redirect("/login");
 
-  const [clientCount, galleryCount, publishedCount] = await Promise.all([
-    prisma.client.count({ where: { photographerId: session.user.userId } }),
-    prisma.gallery.count({ where: { photographerId: session.user.userId } }),
-    prisma.gallery.count({
-      where: { photographerId: session.user.userId, status: "PUBLISHED" },
-    }),
+  const [clientsSnap, galleriesSnap, publishedSnap, recentSnap] = await Promise.all([
+    adminDb.collection("clients").where("photographerId", "==", session.uid).count().get(),
+    adminDb.collection("galleries").where("photographerId", "==", session.uid).count().get(),
+    adminDb.collection("galleries").where("photographerId", "==", session.uid).where("status", "==", "PUBLISHED").count().get(),
+    adminDb.collection("galleries").where("photographerId", "==", session.uid).orderBy("updatedAt", "desc").limit(5).get(),
   ]);
 
-  const recentGalleries = await prisma.gallery.findMany({
-    where: { photographerId: session.user.userId },
-    orderBy: { updatedAt: "desc" },
-    take: 5,
-    include: {
-      client: { select: { name: true } },
-      _count: { select: { photos: true } },
-    },
-  });
+  const clientCount = clientsSnap.data().count;
+  const galleryCount = galleriesSnap.data().count;
+  const publishedCount = publishedSnap.data().count;
+
+  const recentGalleries = await Promise.all(
+    recentSnap.docs.map(async (doc) => {
+      const data = doc.data();
+      let clientName = "";
+      if (data.clientId) {
+        const clientDoc = await adminDb.collection("clients").doc(data.clientId).get();
+        clientName = clientDoc.data()?.name ?? "";
+      }
+      return { id: doc.id, title: data.title as string, status: data.status as string, client: { name: clientName } };
+    })
+  );
 
   return (
     <div>

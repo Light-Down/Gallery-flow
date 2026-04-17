@@ -9,50 +9,65 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "client") {
+  const session = await getSession();
+  if (!session || session.userType !== "client") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { photoId } = await req.json();
-  const clientId = session.user.userId;
+  const favoriteId = `${session.uid}_${photoId}`;
+  const ref = adminDb.collection("favorites").doc(favoriteId);
+  const existing = await ref.get();
 
-  const existing = await prisma.favorite.findUnique({
-    where: { clientId_photoId: { clientId, photoId } },
-  });
-
-  if (existing) {
-    await prisma.favorite.delete({ where: { clientId_photoId: { clientId, photoId } } });
+  if (existing.exists) {
+    await ref.delete();
     return NextResponse.json({ favorited: false });
   }
 
-  await prisma.favorite.create({ data: { clientId, photoId } });
+  await ref.set({ clientId: session.uid, photoId, createdAt: new Date() });
   return NextResponse.json({ favorited: true });
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const clientId = req.nextUrl.searchParams.get("clientId");
   if (!clientId) return NextResponse.json({ error: "Missing clientId" }, { status: 400 });
 
-  const client = await prisma.client.findFirst({
-    where: { id: clientId, photographerId: session.user.userId },
-  });
-  if (!client) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const clientDoc = await adminDb.collection("clients").doc(clientId).get();
+  if (!clientDoc.exists || clientDoc.data()?.photographerId !== session.uid) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  const favorites = await prisma.favorite.findMany({
-    where: { clientId },
-    include: { photo: { select: { filename: true, previewUrl: true, driveLink: true, galleryId: true } } },
-  });
+  const favSnap = await adminDb
+    .collection("favorites")
+    .where("clientId", "==", clientId)
+    .get();
+
+  const favorites = await Promise.all(
+    favSnap.docs.map(async (fav) => {
+      const photoDoc = await adminDb.collection("photos").doc(fav.data().photoId).get();
+      return {
+        id: fav.id,
+        ...fav.data(),
+        photo: photoDoc.exists
+          ? {
+              filename: photoDoc.data()?.filename,
+              previewUrl: photoDoc.data()?.previewUrl,
+              driveLink: photoDoc.data()?.driveLink ?? null,
+              galleryId: photoDoc.data()?.galleryId,
+            }
+          : null,
+      };
+    })
+  );
 
   return NextResponse.json(favorites);
 }

@@ -9,48 +9,57 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 import { sendEmail } from "@/lib/brevo";
 import { renderSneakPeakEmail } from "@/emails/SneakPeakEmail";
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") {
+  const session = await getSession();
+  if (!session || session.userType !== "photographer") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { galleryId } = await req.json();
 
-  const gallery = await prisma.gallery.findFirst({
-    where: { id: galleryId, photographerId: session.user.userId },
-    include: {
-      client: true,
-      photographer: true,
-      photos: { where: { isSneakPeak: true }, take: 3, orderBy: { sortOrder: "asc" } },
-    },
-  });
+  const galleryDoc = await adminDb.collection("galleries").doc(galleryId).get();
+  if (!galleryDoc.exists || galleryDoc.data()?.photographerId !== session.uid) {
+    return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
+  }
+  const gallery = galleryDoc.data()!;
 
-  if (!gallery) return NextResponse.json({ error: "Gallery not found" }, { status: 404 });
+  const [clientDoc, photographerDoc, photosSnap] = await Promise.all([
+    adminDb.collection("clients").doc(gallery.clientId).get(),
+    adminDb.collection("photographers").doc(session.uid).get(),
+    adminDb
+      .collection("photos")
+      .where("galleryId", "==", galleryId)
+      .where("isSneakPeak", "==", true)
+      .orderBy("sortOrder", "asc")
+      .limit(3)
+      .get(),
+  ]);
 
+  if (!clientDoc.exists) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+
+  const client = clientDoc.data()!;
+  const photographer = photographerDoc.data()!;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const galleryUrl = `${appUrl}/gallery/${gallery.slug}`;
 
   const html = renderSneakPeakEmail({
-    clientName: gallery.client.name,
-    photographerName: gallery.photographer.name,
-    photographerLogoUrl: gallery.photographer.logoUrl ?? undefined,
+    clientName: client.name,
+    photographerName: photographer.name,
+    photographerLogoUrl: photographer.logoUrl ?? undefined,
     greetingText: gallery.greetingText ?? `Schau mal, was wir zusammen festgehalten haben!`,
-    previewPhotos: gallery.photos.map((p) => p.previewUrl),
-    galleryUrl,
+    previewPhotos: photosSnap.docs.map((p) => p.data().previewUrl),
+    galleryUrl: `${appUrl}/gallery/${gallery.slug}`,
   });
 
   await sendEmail({
-    to: { email: gallery.client.email, name: gallery.client.name },
-    subject: `✨ Deine ersten Bilder sind da, ${gallery.client.name}!`,
+    to: { email: client.email, name: client.name },
+    subject: `✨ Deine ersten Bilder sind da, ${client.name}!`,
     htmlContent: html,
-    senderName: gallery.photographer.name,
+    senderName: photographer.name,
   });
 
   return NextResponse.json({ ok: true });

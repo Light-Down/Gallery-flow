@@ -9,9 +9,8 @@
  */
 
 import { notFound, redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { adminDb } from "@/lib/firebase-admin";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { GalleryMasonry } from "@/components/gallery/GalleryMasonry";
 import { GalleryHorizontal } from "@/components/gallery/GalleryHorizontal";
@@ -29,26 +28,26 @@ interface PageProps {
 
 export default async function GalleryPage({ params }: PageProps) {
   const { gallerySlug } = await params;
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
 
   if (!session) redirect("/login");
 
-  const gallery = await prisma.gallery.findUnique({
-    where: { slug: gallerySlug },
-    include: {
-      photos: { orderBy: { sortOrder: "asc" } },
-      photographer: true,
-      client: true,
-    },
-  });
+  const galleriesSnap = await adminDb
+    .collection("galleries")
+    .where("slug", "==", gallerySlug)
+    .limit(1)
+    .get();
 
-  if (!gallery) notFound();
+  if (galleriesSnap.empty) notFound();
 
-  if (session.user.userType === "client" && gallery.clientId !== session.user.userId) {
+  const galleryDoc = galleriesSnap.docs[0];
+  const galleryData = galleryDoc.data();
+
+  if (session.userType === "client" && galleryData.clientId !== session.uid) {
     redirect("/login");
   }
 
-  if (gallery.status === "DRAFT") {
+  if (galleryData.status === "DRAFT") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-[var(--muted-foreground)]">Diese Galerie ist noch nicht verfügbar.</p>
@@ -56,100 +55,117 @@ export default async function GalleryPage({ params }: PageProps) {
     );
   }
 
-  const favorites = session.user.userType === "client"
-    ? await prisma.favorite.findMany({
-        where: { clientId: session.user.userId },
-        select: { photoId: true },
-      })
-    : [];
+  const [photosSnap, photographerDoc, clientDoc] = await Promise.all([
+    adminDb.collection("photos").where("galleryId", "==", galleryDoc.id).orderBy("sortOrder", "asc").get(),
+    adminDb.collection("photographers").doc(galleryData.photographerId).get(),
+    galleryData.clientId ? adminDb.collection("clients").doc(galleryData.clientId).get() : Promise.resolve(null),
+  ]);
 
-  const favoriteIds = new Set(favorites.map((f) => f.photoId));
+  const favSnap = session.userType === "client"
+    ? await adminDb.collection("favorites").where("clientId", "==", session.uid).get()
+    : null;
 
-  const allPhotos: PhotoWithFavorite[] = gallery.photos.map((p) => ({
-    ...p,
-    isFavorited: favoriteIds.has(p.id),
-  }));
+  const favoriteIds = new Set(favSnap?.docs.map((f) => f.data().photoId) ?? []);
+
+  const photographer = photographerDoc.data() ?? {};
+  const client = clientDoc?.data() ?? {};
+
+  const allPhotos: PhotoWithFavorite[] = photosSnap.docs.map((p) => {
+    const d = p.data();
+    return {
+      id: p.id,
+      filename: d.filename as string,
+      previewUrl: d.previewUrl as string,
+      driveLink: (d.driveLink as string | null) ?? null,
+      isSneakPeak: (d.isSneakPeak as boolean) ?? false,
+      sortOrder: (d.sortOrder as number) ?? 0,
+      width: (d.width as number | null) ?? null,
+      height: (d.height as number | null) ?? null,
+      sizeBytes: (d.sizeBytes as number | null) ?? null,
+      isFavorited: favoriteIds.has(p.id),
+    };
+  });
 
   const sneakPeakPhotos = allPhotos.filter((p) => p.isSneakPeak);
-  const visiblePhotos =
-    gallery.status === "SNEAK_PEAK" ? sneakPeakPhotos : allPhotos;
+  const visiblePhotos = galleryData.status === "SNEAK_PEAK" ? sneakPeakPhotos : allPhotos;
 
-  const galleryData: GalleryWithPhotos = {
-    id: gallery.id,
-    title: gallery.title,
-    slug: gallery.slug,
-    description: gallery.description,
-    design: gallery.design,
-    status: gallery.status,
-    greetingText: gallery.greetingText,
-    expiresAt: gallery.expiresAt,
+  const galleryForDisplay: GalleryWithPhotos = {
+    id: galleryDoc.id,
+    title: galleryData.title,
+    slug: galleryData.slug,
+    description: galleryData.description ?? null,
+    design: galleryData.design,
+    status: galleryData.status,
+    greetingText: galleryData.greetingText ?? null,
+    expiresAt: galleryData.expiresAt ?? null,
     photos: visiblePhotos,
     photographer: {
-      logoUrl: gallery.photographer.logoUrl,
-      accentColor: gallery.photographer.accentColor,
-      footerText: gallery.photographer.footerText,
-      name: gallery.photographer.name,
-      googleReviewUrl: gallery.photographer.googleReviewUrl,
-      secondReviewUrl: gallery.photographer.secondReviewUrl,
-      secondReviewLabel: gallery.photographer.secondReviewLabel,
+      logoUrl: photographer.logoUrl ?? null,
+      accentColor: photographer.accentColor ?? "#1a1a1a",
+      footerText: photographer.footerText ?? null,
+      name: photographer.name ?? "",
+      googleReviewUrl: photographer.googleReviewUrl ?? null,
+      secondReviewUrl: photographer.secondReviewUrl ?? null,
+      secondReviewLabel: photographer.secondReviewLabel ?? null,
     },
-    client: { name: gallery.client.name, id: gallery.client.id },
+    client: { name: client.name ?? "", id: galleryData.clientId ?? "" },
   };
 
-  const GalleryComponent = {
+  const designMap = {
     GRID: GalleryGrid,
     MASONRY: GalleryMasonry,
     HORIZONTAL: GalleryHorizontal,
     SLIDESHOW: GallerySlideshow,
     MAGAZINE: GalleryMagazine,
     POLAROID: GalleryPolaroid,
-  }[gallery.design];
+  } as const;
+  const GalleryComponent = designMap[galleryData.design as keyof typeof designMap] ?? GalleryMasonry;
 
   return (
     <div>
       <header className="px-6 py-6 border-b border-[var(--border)] flex items-center justify-between">
         <div>
-          {gallery.photographer.logoUrl ? (
+          {photographer.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={gallery.photographer.logoUrl}
-              alt={gallery.photographer.name}
+              src={photographer.logoUrl}
+              alt={photographer.name}
               className="h-8 object-contain"
             />
           ) : (
             <span className="font-display text-xl font-semibold">
-              {gallery.photographer.name}
+              {photographer.name}
             </span>
           )}
         </div>
         <DownloadButton
           photos={visiblePhotos}
-          galleryTitle={gallery.title}
+          galleryTitle={galleryData.title}
         />
       </header>
 
       <main className="px-6 pt-10 pb-4">
-        {gallery.greetingText && (
+        {galleryData.greetingText && (
           <p className="font-display text-lg italic text-[var(--muted-foreground)] mb-8 max-w-2xl">
-            {gallery.greetingText}
+            {galleryData.greetingText}
           </p>
         )}
 
-        {gallery.status === "SNEAK_PEAK" && (
+        {galleryData.status === "SNEAK_PEAK" && (
           <SneakPeakSection photos={sneakPeakPhotos} />
         )}
 
-        <GalleryComponent photos={visiblePhotos} galleryId={gallery.id} />
+        <GalleryComponent photos={visiblePhotos} galleryId={galleryDoc.id} />
       </main>
 
       <ReviewButton
-        googleReviewUrl={gallery.photographer.googleReviewUrl}
-        secondReviewUrl={gallery.photographer.secondReviewUrl}
-        secondReviewLabel={gallery.photographer.secondReviewLabel}
+        googleReviewUrl={photographer.googleReviewUrl ?? null}
+        secondReviewUrl={photographer.secondReviewUrl ?? null}
+        secondReviewLabel={photographer.secondReviewLabel ?? null}
       />
 
       <footer className="px-6 py-8 border-t border-[var(--border)] text-center text-sm text-[var(--muted-foreground)]">
-        {gallery.photographer.footerText ?? `© ${gallery.photographer.name}`}
+        {photographer.footerText ?? `© ${photographer.name}`}
       </footer>
     </div>
   );

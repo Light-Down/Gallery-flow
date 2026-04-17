@@ -11,8 +11,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { usePathname, useRouter } from "next/navigation";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { LayoutDashboard, Users, Images, Settings, LogOut } from "lucide-react";
 
 const navItems = [
@@ -24,6 +25,13 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    await signOut(auth);
+    await fetch("/api/auth/session", { method: "DELETE" });
+    router.push("/login");
+  }
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-[var(--border)] flex flex-col">
@@ -53,7 +61,7 @@ export function Sidebar() {
 
       <div className="px-4 py-4 border-t border-[var(--border)]">
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2 w-full rounded-md text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
         >
           <LogOut className="w-4 h-4" />
