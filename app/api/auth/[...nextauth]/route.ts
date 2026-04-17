@@ -8,8 +8,8 @@
  * (at your option) any later version.
  */
 
-import { redirect } from "next/navigation";
+import NextAuth from "next-auth";
+import { authOptions } from "@/lib/auth";
 
-export default function HomePage() {
-  redirect("/login");
-}
+const handler = NextAuth(authOptions);
+export { handler as GET, handler as POST };

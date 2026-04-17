@@ -8,8 +8,11 @@
  * (at your option) any later version.
  */
 
-import { redirect } from "next/navigation";
+import { NextRequest, NextResponse } from "next/server";
 
-export default function HomePage() {
-  redirect("/login");
+export async function GET(req: NextRequest) {
+  const title = req.nextUrl.searchParams.get("title") ?? "gallery";
+  return NextResponse.redirect(
+    new URL(`/gallery?download=true&title=${encodeURIComponent(title)}`, req.url)
+  );
 }

@@ -8,8 +8,10 @@
  * (at your option) any later version.
  */
 
-import { redirect } from "next/navigation";
-
-export default function HomePage() {
-  redirect("/login");
+export default function AuthLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--muted)] px-4">
+      {children}
+    </div>
+  );
 }

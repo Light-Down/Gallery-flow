@@ -8,8 +8,10 @@
  * (at your option) any later version.
  */
 
-import { redirect } from "next/navigation";
+import { PrismaClient } from "@prisma/client";
 
-export default function HomePage() {
-  redirect("/login");
-}
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

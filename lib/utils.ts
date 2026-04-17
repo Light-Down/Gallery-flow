@@ -8,8 +8,9 @@
  * (at your option) any later version.
  */
 
-import { redirect } from "next/navigation";
+import { type ClassValue, clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-export default function HomePage() {
-  redirect("/login");
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
