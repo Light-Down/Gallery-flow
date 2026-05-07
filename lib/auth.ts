@@ -10,8 +10,10 @@
 
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+
+// Demo-Zugangsdaten (temporär für erste Tests)
+const DEMO_EMAIL = "admin";
+const DEMO_PASSWORD = "admin";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -27,20 +29,17 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const photographer = await prisma.photographer.findUnique({
-          where: { email: credentials.email },
-        });
-        if (!photographer) return null;
+        // Demo-Login: admin / admin
+        if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
+          return {
+            id: "demo-photographer-id",
+            email: "admin",
+            name: "Demo Fotograf",
+            userType: "photographer",
+          };
+        }
 
-        const valid = await bcrypt.compare(credentials.password, photographer.password);
-        if (!valid) return null;
-
-        return {
-          id: photographer.id,
-          email: photographer.email,
-          name: photographer.name,
-          userType: "photographer",
-        };
+        return null;
       },
     }),
     CredentialsProvider({
@@ -52,30 +51,21 @@ export const authOptions: NextAuthOptions = {
         photographerId: { label: "Photographer ID", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password || !credentials?.photographerId) return null;
+        if (!credentials?.email || !credentials?.password) return null;
 
-        const client = await prisma.client.findUnique({
-          where: {
-            email_photographerId: {
-              email: credentials.email,
-              photographerId: credentials.photographerId,
-            },
-          },
-          include: { galleries: { select: { slug: true }, take: 1 } },
-        });
-        if (!client) return null;
+        // Demo-Login: admin / admin
+        if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
+          return {
+            id: "demo-client-id",
+            email: "admin",
+            name: "Demo Kunde",
+            userType: "client",
+            photographerId: "demo-photographer-id",
+            gallerySlug: null,
+          };
+        }
 
-        const valid = await bcrypt.compare(credentials.password, client.password);
-        if (!valid) return null;
-
-        return {
-          id: client.id,
-          email: client.email,
-          name: client.name,
-          userType: "client",
-          photographerId: client.photographerId,
-          gallerySlug: client.galleries[0]?.slug ?? null,
-        };
+        return null;
       },
     }),
   ],
