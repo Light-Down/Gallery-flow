@@ -61,7 +61,7 @@ export const authOptions: NextAuthOptions = {
             name: "Demo Kunde",
             userType: "client",
             photographerId: "demo-photographer-id",
-            gallerySlug: null,
+            gallerySlug: undefined,
           };
         }
 
