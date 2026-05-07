@@ -9,33 +9,88 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import {
+  DEMO_PHOTOGRAPHER,
+  DEMO_CLIENT,
+  DEMO_GALLERY,
+  DEMO_PHOTOS,
+} from "./demo-data";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
+// Demo-Daten je nach Modell
+const DEMO_MODEL_DATA: Record<string, unknown[]> = {
+  gallery: [DEMO_GALLERY],
+  client: [
+    {
+      ...DEMO_CLIENT,
+      galleries: [{ id: DEMO_GALLERY.id, title: DEMO_GALLERY.title, status: DEMO_GALLERY.status }],
+      _count: { favorites: 0 },
+    },
+  ],
+  photographer: [DEMO_PHOTOGRAPHER],
+  photo: DEMO_PHOTOS,
+  favorite: [],
+};
+
 // Mock-Client für Demo-Modus (keine Datenbank nötig)
 function createMockPrisma(): PrismaClient {
-  const mockModel = {
-    findUnique: async () => null,
-    findFirst: async () => null,
-    findMany: async () => [],
-    count: async () => 0,
-    create: async (args: { data: unknown }) => args.data,
-    update: async (args: { data: unknown }) => args.data,
-    delete: async () => ({}),
-    upsert: async (args: { create: unknown }) => args.create,
-  };
   return new Proxy({} as PrismaClient, {
-    get: (_, prop) => {
-      if (prop === "$connect" || prop === "$disconnect") return async () => {};
-      if (prop === "$transaction") return async (fn: (tx: unknown) => unknown) => fn(createMockPrisma());
-      return mockModel;
+    get: (_, modelName) => {
+      if (modelName === "$connect" || modelName === "$disconnect") return async () => {};
+      if (modelName === "$transaction") return async (fn: (tx: unknown) => unknown) => fn(createMockPrisma());
+
+      const rows = (DEMO_MODEL_DATA[modelName as string] ?? []) as Record<string, unknown>[];
+
+      return {
+        findUnique: async (args?: { where?: Record<string, unknown> }) => {
+          if (!args?.where) return rows[0] ?? null;
+          for (const row of rows) {
+            for (const [k, v] of Object.entries(args.where)) {
+              if (row[k] === v) return row;
+            }
+          }
+          return null;
+        },
+        findFirst: async (args?: { where?: Record<string, unknown> }) => {
+          if (!args?.where) return rows[0] ?? null;
+          for (const row of rows) {
+            let match = true;
+            for (const [k, v] of Object.entries(args.where)) {
+              if (row[k] !== v) { match = false; break; }
+            }
+            if (match) return row;
+          }
+          return null;
+        },
+        findMany: async (args?: { where?: Record<string, unknown>; take?: number }) => {
+          let result = rows;
+          if (args?.where) {
+            result = rows.filter((row) =>
+              Object.entries(args.where!).every(([k, v]) => row[k] === v)
+            );
+          }
+          if (args?.take) result = result.slice(0, args.take);
+          return result;
+        },
+        count: async (args?: { where?: Record<string, unknown> }) => {
+          if (!args?.where) return rows.length;
+          return rows.filter((row) =>
+            Object.entries(args.where!).every(([k, v]) => row[k] === v)
+          ).length;
+        },
+        create: async (args: { data: unknown }) => args.data,
+        update: async (args: { data: unknown }) => args.data,
+        delete: async () => ({}),
+        upsert: async (args: { create: unknown }) => args.create,
+      };
     },
   });
 }
 
 function getPrismaClient(): PrismaClient {
   if (!process.env.DATABASE_URL) {
-    console.warn("[Demo] Kein DATABASE_URL gesetzt – Demo-Modus aktiv (leere Daten).");
+    console.warn("[Demo] Kein DATABASE_URL gesetzt – Demo-Modus aktiv.");
     return createMockPrisma();
   }
   return globalForPrisma.prisma ?? new PrismaClient();

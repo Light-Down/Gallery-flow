@@ -8,9 +8,7 @@
  * (at your option) any later version.
  */
 
-import { notFound, redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { GalleryGrid } from "@/components/gallery/GalleryGrid";
 import { GalleryMasonry } from "@/components/gallery/GalleryMasonry";
@@ -29,10 +27,8 @@ interface PageProps {
 
 export default async function GalleryPage({ params }: PageProps) {
   const { gallerySlug } = await params;
-  const session = await getServerSession(authOptions);
 
-  if (!session) redirect("/login");
-
+  // Demo-Modus: Auth deaktiviert
   const gallery = await prisma.gallery.findUnique({
     where: { slug: gallerySlug },
     include: {
@@ -44,10 +40,6 @@ export default async function GalleryPage({ params }: PageProps) {
 
   if (!gallery) notFound();
 
-  if (session.user.userType === "client" && gallery.clientId !== session.user.userId) {
-    redirect("/login");
-  }
-
   if (gallery.status === "DRAFT") {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -56,18 +48,9 @@ export default async function GalleryPage({ params }: PageProps) {
     );
   }
 
-  const favorites = session.user.userType === "client"
-    ? await prisma.favorite.findMany({
-        where: { clientId: session.user.userId },
-        select: { photoId: true },
-      })
-    : [];
-
-  const favoriteIds = new Set(favorites.map((f) => f.photoId));
-
   const allPhotos: PhotoWithFavorite[] = gallery.photos.map((p) => ({
     ...p,
-    isFavorited: favoriteIds.has(p.id),
+    isFavorited: false,
   }));
 
   const sneakPeakPhotos = allPhotos.filter((p) => p.isSneakPeak);
