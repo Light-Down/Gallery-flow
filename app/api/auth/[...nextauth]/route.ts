@@ -11,5 +11,13 @@
 import NextAuth from "next-auth";
 import { authOptions } from "@/lib/auth";
 
+// Vercel-fix: NEXTAUTH_URL aus VERCEL_URL ableiten wenn nicht explizit gesetzt
+if (!process.env.NEXTAUTH_URL && process.env.VERCEL_URL) {
+  process.env.NEXTAUTH_URL = `https://${process.env.VERCEL_URL}`;
+}
+
+console.log("[NextAuth route] NEXTAUTH_URL:", process.env.NEXTAUTH_URL);
+console.log("[NextAuth route] VERCEL_URL:", process.env.VERCEL_URL);
+
 const handler = NextAuth(authOptions);
 export { handler as GET, handler as POST };
