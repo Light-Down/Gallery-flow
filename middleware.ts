@@ -8,39 +8,18 @@
  * (at your option) any later version.
  */
 
-import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-export default withAuth(
-  function middleware(req) {
-    const token = req.nextauth.token;
-    const pathname = req.nextUrl.pathname;
-
-    if (pathname.startsWith("/dashboard")) {
-      if (token?.userType !== "photographer") {
-        return NextResponse.redirect(new URL("/login", req.url));
-      }
-    }
-
-    if (pathname.startsWith("/gallery")) {
-      if (token?.userType !== "client") {
-        return NextResponse.redirect(new URL("/login", req.url));
-      }
-    }
-
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token, req }) => {
-        const pathname = req.nextUrl.pathname;
-        if (pathname === "/login" || pathname === "/") return true;
-        return !!token;
-      },
-    },
+// Demo-Modus: Auth temporär deaktiviert
+export function middleware(req: NextRequest) {
+  // Startseite direkt zum Dashboard weiterleiten
+  if (req.nextUrl.pathname === "/") {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
   }
-);
+  return NextResponse.next();
+}
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/gallery/:path*"],
+  matcher: ["/"],
 };
