@@ -8,12 +8,34 @@
  * (at your option) any later version.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+let _supabase: SupabaseClient | null = null;
+let _supabaseAdmin: SupabaseClient | null = null;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    _supabase = createClient(url, anonKey);
+  }
+  return _supabase;
+}
 
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!_supabaseAdmin) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    _supabaseAdmin = createClient(url, serviceKey);
+  }
+  return _supabaseAdmin;
+}
+
+// Backwards-compatible named exports (lazy)
+export const supabase = new Proxy({} as SupabaseClient, {
+  get: (_, prop) => getSupabase()[prop as keyof SupabaseClient],
+});
+
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+  get: (_, prop) => getSupabaseAdmin()[prop as keyof SupabaseClient],
+});
