@@ -16,6 +16,7 @@ const DEMO_EMAIL = "admin@demo.com";
 const DEMO_PASSWORD = "admin";
 
 export const authOptions: NextAuthOptions = {
+  debug: true,
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
@@ -27,10 +28,12 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        console.log("[Auth] photographer authorize called, email:", credentials?.email);
         if (!credentials?.email || !credentials?.password) return null;
 
         // Demo-Login: admin / admin
         if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
+          console.log("[Auth] photographer login SUCCESS");
           return {
             id: "demo-photographer-id",
             email: "admin@demo.com",
