@@ -12,7 +12,7 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
 // Demo-Zugangsdaten (temporär für erste Tests)
-const DEMO_EMAIL = "admin";
+const DEMO_EMAIL = "admin@demo.com";
 const DEMO_PASSWORD = "admin";
 
 export const authOptions: NextAuthOptions = {
@@ -33,7 +33,7 @@ export const authOptions: NextAuthOptions = {
         if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
           return {
             id: "demo-photographer-id",
-            email: "admin",
+            email: "admin@demo.com",
             name: "Demo Fotograf",
             userType: "photographer",
           };
@@ -57,7 +57,7 @@ export const authOptions: NextAuthOptions = {
         if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
           return {
             id: "demo-client-id",
-            email: "admin",
+            email: "admin@demo.com",
             name: "Demo Kunde",
             userType: "client",
             photographerId: "demo-photographer-id",
