@@ -8,27 +8,26 @@
  * (at your option) any later version.
  */
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Users, Images, Eye } from "lucide-react";
 
+// Demo-Modus: Auth deaktiviert
+const DEMO_PHOTOGRAPHER_ID = "demo-photographer-id";
+
 export default async function DashboardPage() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") redirect("/login");
+  const photographerId = DEMO_PHOTOGRAPHER_ID;
 
   const [clientCount, galleryCount, publishedCount] = await Promise.all([
-    prisma.client.count({ where: { photographerId: session.user.userId } }),
-    prisma.gallery.count({ where: { photographerId: session.user.userId } }),
+    prisma.client.count({ where: { photographerId } }),
+    prisma.gallery.count({ where: { photographerId } }),
     prisma.gallery.count({
-      where: { photographerId: session.user.userId, status: "PUBLISHED" },
+      where: { photographerId, status: "PUBLISHED" },
     }),
   ]);
 
   const recentGalleries = await prisma.gallery.findMany({
-    where: { photographerId: session.user.userId },
+    where: { photographerId },
     orderBy: { updatedAt: "desc" },
     take: 5,
     include: {

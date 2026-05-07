@@ -8,20 +8,17 @@
  * (at your option) any later version.
  */
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { GalleryCard } from "@/components/dashboard/GalleryCard";
 
-export default async function GalleriesPage() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.userType !== "photographer") redirect("/login");
+// Demo-Modus: Auth deaktiviert
+const DEMO_PHOTOGRAPHER_ID = "demo-photographer-id";
 
+export default async function GalleriesPage() {
   const galleries = await prisma.gallery.findMany({
-    where: { photographerId: session.user.userId },
+    where: { photographerId: DEMO_PHOTOGRAPHER_ID },
     include: {
       client: { select: { name: true } },
       _count: { select: { photos: true } },
