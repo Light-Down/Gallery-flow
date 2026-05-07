@@ -28,11 +28,13 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        console.log("[Auth] photographer authorize called, email:", credentials?.email);
-        if (!credentials?.email || !credentials?.password) return null;
+        const email = credentials?.email?.trim().toLowerCase() ?? "";
+        const password = credentials?.password?.trim() ?? "";
+        console.log("[Auth] photographer authorize:", JSON.stringify({ email, password }));
+        if (!email || !password) return null;
 
-        // Demo-Login: admin / admin
-        if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
+        // Demo-Login: admin@demo.com / admin
+        if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
           console.log("[Auth] photographer login SUCCESS");
           return {
             id: "demo-photographer-id",
@@ -54,10 +56,13 @@ export const authOptions: NextAuthOptions = {
         photographerId: { label: "Photographer ID", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        const email = credentials?.email?.trim().toLowerCase() ?? "";
+        const password = credentials?.password?.trim() ?? "";
+        console.log("[Auth] client authorize:", JSON.stringify({ email, password }));
+        if (!email || !password) return null;
 
-        // Demo-Login: admin / admin
-        if (credentials.email === DEMO_EMAIL && credentials.password === DEMO_PASSWORD) {
+        // Demo-Login: admin@demo.com / admin
+        if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
           return {
             id: "demo-client-id",
             email: "admin@demo.com",
